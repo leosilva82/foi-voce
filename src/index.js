@@ -1,26 +1,26 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css'; // Se este arquivo existir, mantenha
-import App from './App'; // Importando o App.jsx
+import './index.css'; 
 
-// Use a API de root moderna do React 18
+// IMPORTAÇÃO CORRIGIDA: Cada módulo em sua própria linha
+import App from './App.jsx';
+import { AnonymousPartyGame } from './AnonymousPartyGame.jsx'; 
+
+// Use o componente principal App (que provavelmente usa AnonymousPartyGame dentro dele)
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
-// A linha 7 é o início do 'root.render' ou 'ReactDOM.createRoot'
 root.render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
 );
 
-// Se você não usa createRoot, o erro pode estar aqui:
-// Se estiver usando uma versão antiga:
+// Alternativamente, se você quiser renderizar AnonymousPartyGame diretamente:
 /*
-ReactDOM.render(
+root.render(
   <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-  document.getElementById('root')
+    <AnonymousPartyGame />
+  </React.StrictMode>
 );
 */
 
