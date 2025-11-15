@@ -1,412 +1,366 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, onSnapshot, collection, query, updateDoc, setDoc, getDoc } from 'firebase/firestore';
-import { Loader2, Zap, Users, MessageSquare, CheckCheck } from 'lucide-react';
-// --- CONFIGURAÇÃO E VARIÁVEIS DO AMBIENTE ---
-const { __app_id, __firebase_config, __initial_auth_token } = window;
+import { getAuth, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
+import {
+getFirestore, collection, doc, onSnapshot,
+setDoc, addDoc, updateDoc, deleteDoc, query
+} from 'firebase/firestore';
+import { Loader2, Zap, Users, Send, Smile, Info } from 'lucide-react';
+// === 1. CONFIGURAÇÃO DE AMBIENTE DO CANVAS (CRÍTICO) ===
+// O app ID é obrigatório para construir os caminhos do Firestore.
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-// Caminhos de coleções (Obrigatório para o Firestore)
-const getPublicCollectionRef = (db, collectionName) =>
-collection(db, '/artifacts/' + appId + '/public/data/' + collectionName);
-// --- COMPONENTE PRINCIPAL ---
+// --- Estrutura de dados ---
+const COL_PLAYERS = /artifacts/${appId}/public/data/players;
+const COL_MESSAGES = /artifacts/${appId}/public/data/messages;
+// Status do jogo
+const GAME_STATUS = {
+LOADING: 'LOADING',
+JOINING: 'JOINING',
+WAITING_FOR_QUESTION: 'WAITING_FOR_QUESTION',
+VOTING: 'VOTING',
+RESULTS: 'RESULTS',
+ERROR: 'ERROR'
+};
+// Componente principal do jogo
 export const AnonymousPartyGame = () => {
-// --- HOOKS DE ESTADO ---
+// === ESTADO DE INICIALIZAÇÃO E AUTENTICAÇÃO ===
 const [db, setDb] = useState(null);
-// O estado 'auth' foi removido pois a instância é usada diretamente no useEffect.
-// const [auth, setAuth] = useState(null);
+const [auth, setAuth] = useState(null);
 const [userId, setUserId] = useState(null);
-const [isAuthReady, setIsAuthReady] = useState(false);
-const [roomId, setRoomId] = useState('');
-const [isHost, setIsHost] = useState(false);
-const [isJoining, setIsJoining] = useState(false);
-const [error, setError] = useState('');
-const [lobbyIdInput, setLobbyIdInput] = useState('');
+const [status, setStatus] = useState(GAME_STATUS.LOADING);
+const [username, setUsername] = useState('');
+// === ESTADO DO JOGO ===
 const [players, setPlayers] = useState([]);
-const [gameState, setGameState] = useState(null);
-const [myPrompt, setMyPrompt] = useState('');
-const [isSubmitting, setIsSubmitting] = useState(false);
-const [myAnswer, setMyAnswer] = useState('');
-// Define o estado inicial do jogo (estrutura)
-const initialGameState = useMemo(() => ({
-status: 'LOBBY', // Estados: 'LOBBY' | 'WAITING_PROMPTS' | 'WAITING_GUESSES' | 'REVEALING' | 'FINISHED'
-hostId: '',
-currentPrompt: '',
-round: 0,
-maxRounds: 3,
-prompts: [],
-answers: {},
-guesses: {},
-scores: {},
-correctAnswerId: null,
-}), []);
-// --- FUNÇÕES DE SETUP (Inicialização do Firebase e Autenticação) ---
+const [messages, setMessages] = useState([]);
+const [currentQuestion, setCurrentQuestion] = useState('Quem é o mais engraçado da festa?'); // Mock de pergunta
+const [voteTargetId, setVoteTargetId] = useState(null);
+
+// === LÓGICA DE FIREBASE E AUTENTICAÇÃO (CORREÇÃO DE "CARREGANDO") ===
 useEffect(() => {
-try {
-const app = initializeApp(firebaseConfig);
-const dbInstance = getFirestore(app);
-const authInstance = getAuth(app);
-  setDb(dbInstance);
-  // setAuth(authInstance); // setAuth removido
-
-  const handleAuth = async (user) => {
-    if (user) {
-      setUserId(user.uid);
-      setIsAuthReady(true);
-    } else {
-      try {
-        // Se não houver token, faz login anônimo
-        await signInAnonymously(authInstance);
-      } catch (e) {
-        console.error("Erro ao fazer login anônimo:", e);
-        setError("Falha na autenticação. Recarregue.");
-        setIsAuthReady(true);
-      }
+    if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
+        console.error("Configuração do Firebase não encontrada.");
+        setStatus(GAME_STATUS.ERROR);
+        return;
     }
-  };
 
-  // Tenta login com token inicial ou anônimo
-  if (initialAuthToken) {
-    signInWithCustomToken(authInstance, initialAuthToken).then((userCredential) => {
-      handleAuth(userCredential.user);
-    }).catch(() => {
-      console.log("Token inválido, tentando login anônimo.");
-      signInAnonymously(authInstance).then((userCredential) => {
-        handleAuth(userCredential.user);
-      });
+    const app = initializeApp(firebaseConfig);
+    const firestoreDb = getFirestore(app);
+    const firebaseAuth = getAuth(app);
+    
+    setDb(firestoreDb);
+    setAuth(firebaseAuth);
+
+    const authenticate = async () => {
+        try {
+            if (initialAuthToken) {
+                await signInWithCustomToken(firebaseAuth, initialAuthToken);
+            } else {
+                await signInAnonymously(firebaseAuth);
+            }
+            
+            const user = firebaseAuth.currentUser;
+            // Gera um ID de usuário anônimo ou usa o UID fornecido
+            const uid = user?.uid || crypto.randomUUID(); 
+            setUserId(uid);
+            
+            // Mude o status APÓS a autenticação bem-sucedida
+            setStatus(GAME_STATUS.JOINING); 
+
+        } catch (error) {
+            console.error("Erro na inicialização/autenticação do Firebase:", error);
+            setStatus(GAME_STATUS.ERROR);
+        }
+    };
+
+    authenticate();
+}, []);
+
+// === LÓGICA DE ENTRADA DO JOGO E DATASCRIPTIONS ===
+
+// 1. Inscrição em jogadores (Real-time update)
+useEffect(() => {
+    if (!db || status === GAME_STATUS.LOADING || status === GAME_STATUS.ERROR) return;
+
+    const playersQuery = query(collection(db, COL_PLAYERS));
+    const unsubscribe = onSnapshot(playersQuery, (snapshot) => {
+        const playerList = snapshot.docs.map(doc => ({ 
+            id: doc.id, 
+            ...doc.data() 
+        }));
+        setPlayers(playerList);
+    }, (error) => {
+        console.error("Erro ao carregar jogadores:", error);
     });
-  } else {
-    // Observa mudanças no estado de autenticação
-    const unsubscribe = onAuthStateChanged(authInstance, handleAuth);
+
     return () => unsubscribe();
-  }
+}, [db, status]);
 
-} catch (e) {
-  console.error("Erro ao inicializar Firebase:", e);
-  setError("Erro ao inicializar o serviço Firebase. Verifique a configuração.");
-}
+// 2. Inscrição em mensagens (Real-time update)
+useEffect(() => {
+    if (!db || status === GAME_STATUS.LOADING || status === GAME_STATUS.ERROR) return;
 
-return () => {
-    // Cleanup function for onAuthStateChanged is already handled above in the else block
-    // No need for a global unsubscribe here since onAuthStateChanged is handled.
+    const messagesQuery = query(collection(db, COL_MESSAGES));
+    const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
+        const messageList = snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
+        setMessages(messageList);
+    }, (error) => {
+        console.error("Erro ao carregar mensagens:", error);
+    });
+
+    return () => unsubscribe();
+}, [db, status]);
+
+
+// Adiciona o jogador ao Firestore
+const handleJoinGame = useCallback(async () => {
+    if (!db || !userId || username.trim() === '') return;
+
+    try {
+        const playerRef = doc(db, COL_PLAYERS, userId);
+        await setDoc(playerRef, {
+            username: username,
+            joinedAt: new Date(),
+            isHost: players.length === 0, // O primeiro a entrar é o host
+            vote: null,
+            isAnonymous: true // Característica do jogo
+        });
+        setStatus(GAME_STATUS.WAITING_FOR_QUESTION);
+        console.log("Jogador entrou:", username);
+    } catch (e) {
+        console.error("Erro ao entrar no jogo:", e);
+    }
+}, [db, userId, username, players.length]);
+
+// Função de votação (mock)
+const handleVote = useCallback(async () => {
+    if (!db || !userId || !voteTargetId) return;
+
+    try {
+        const playerRef = doc(db, COL_PLAYERS, userId);
+        await updateDoc(playerRef, { vote: voteTargetId, votedAt: new Date() });
+        setStatus(GAME_STATUS.VOTING); // Permanece em voting para mostrar que votou
+        console.log(`Usuário ${userId} votou em ${voteTargetId}`);
+    } catch (e) {
+        console.error("Erro ao votar:", e);
+    }
+}, [db, userId, voteTargetId]);
+
+// Contagem dos votos para a tela de resultados (mock)
+const voteCounts = useMemo(() => {
+    if (status !== GAME_STATUS.RESULTS) return {};
+    const counts = {};
+    players.forEach(p => {
+        if (p.vote) {
+            counts[p.vote] = (counts[p.vote] || 0) + 1;
+        }
+    });
+    return counts;
+}, [players, status]);
+
+// Função para enviar mensagem (Chat Anônimo)
+const handleSendMessage = async (e) => {
+    e.preventDefault();
+    const input = e.target.elements.messageInput;
+    const text = input.value.trim();
+    
+    if (!db || !userId || text === '') return;
+
+    try {
+        // O nome do usuário é o nome que ele escolheu, mas o chat é anônimo.
+        const userPlayer = players.find(p => p.id === userId);
+
+        await addDoc(collection(db, COL_MESSAGES), {
+            senderId: userId, // ID real para rastreamento interno
+            senderName: userPlayer ? userPlayer.username : 'Anônimo', // Nome para exibição (se quiser)
+            text: text,
+            timestamp: new Date()
+        });
+        input.value = ''; // Limpa o input
+    } catch (e) {
+        console.error("Erro ao enviar mensagem:", e);
+    }
 };
 
-}, [setDb]); // setDb é uma função estável e segura de incluir. setAuth foi removido.
-// --- LISTENERS (Sincronização em Tempo Real) ---
-// 1. Listener do Jogo (gameState)
-useEffect(() => {
-if (!db || !userId || !roomId || !isAuthReady) return;
-const gameDocRef = doc(getPublicCollectionRef(db, 'games'), roomId);
+// --- RENDERIZAÇÃO DA TELA DE CARREGAMENTO/ERRO ---
 
-const unsubscribe = onSnapshot(gameDocRef, (docSnap) => {
-  if (docSnap.exists()) {
-    const data = docSnap.data();
-    setGameState(data.state);
-    setIsHost(data.hostId === userId);
-  } else {
-    setGameState(initialGameState); // Reseta se o documento sumir
-    setError("Lobby não encontrado ou foi encerrado.");
-    setRoomId('');
-  }
-}, (e) => {
-  console.error("Erro no snapshot do jogo:", e);
-  setError("Erro de conexão com o jogo.");
-});
-
-// Removido getPublicCollectionRef das dependências.
-return () => unsubscribe();
-
-}, [db, userId, roomId, isAuthReady, initialGameState]);
-// 2. Listener dos Jogadores (players)
-useEffect(() => {
-if (!db || !roomId || !isAuthReady) return;
-const playersColRef = getPublicCollectionRef(db, `games/${roomId}/players`);
-const q = query(playersColRef);
-
-const unsubscribe = onSnapshot(q, (snapshot) => {
-  const playerList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  setPlayers(playerList);
-});
-
-// Removido getPublicCollectionRef das dependências.
-return () => unsubscribe();
-
-}, [db, roomId, isAuthReady]);
-// --- MÉTODOS DE AÇÃO ---
-// Cria um novo lobby
-const handleCreateLobby = useCallback(async () => {
-if (!db || !userId) return;
-setIsSubmitting(true);
-setError('');
-try {
-  const roomID = Math.random().toString(36).substring(2, 6).toUpperCase();
-  const newGameState = { ...initialGameState, hostId: userId, status: 'LOBBY' };
-
-  // 1. Cria o documento principal do jogo
-  const gameDocRef = doc(getPublicCollectionRef(db, 'games'), roomID);
-  await setDoc(gameDocRef, { hostId: userId, state: newGameState, createdAt: new Date() });
-
-  // 2. Adiciona o host como primeiro jogador
-  const playerDocRef = doc(getPublicCollectionRef(db, `games/${roomID}/players`), userId);
-  await setDoc(playerDocRef, { name: `Host-${userId.substring(0, 4)}`, joinedAt: new Date() });
-
-  setRoomId(roomID);
-  setIsHost(true);
-  setLobbyIdInput('');
-} catch (e) {
-  console.error("Erro ao criar lobby:", e);
-  setError("Falha ao criar o lobby. Tente novamente.");
-} finally {
-  setIsSubmitting(false);
+// 1. Tela de Carregamento (Sai após autenticação bem-sucedida)
+if (status === GAME_STATUS.LOADING) {
+    return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-4">
+            <Loader2 className="w-10 h-10 animate-spin text-purple-400" />
+            <p className="mt-4 text-lg">Iniciando a Conexão com o Servidor...</p>
+            <p className="mt-2 text-sm text-gray-400">Isso deve levar apenas alguns segundos.</p>
+        </div>
+    );
 }
-// Removido getPublicCollectionRef das dependências.
 
-}, [db, userId, initialGameState]);
-// Entra em um lobby existente
-const handleJoinLobby = useCallback(async (id) => {
-if (!db || !userId || !id) return;
-setIsSubmitting(true);
-setError('');
-setIsJoining(true);
-try {
-  const roomID = id.toUpperCase();
-  const gameDocRef = doc(getPublicCollectionRef(db, 'games'), roomID);
-  const docSnap = await getDoc(gameDocRef);
-
-  if (!docSnap.exists()) {
-    setError("Lobby não encontrado. Verifique o código.");
-    return;
-  }
-
-  // 1. Adiciona o jogador
-  const playerDocRef = doc(getPublicCollectionRef(db, `games/${roomID}/players`), userId);
-  await setDoc(playerDocRef, { name: `Player-${userId.substring(0, 4)}`, joinedAt: new Date() });
-
-  setRoomId(roomID);
-  setIsHost(docSnap.data().hostId === userId);
-  setLobbyIdInput('');
-
-} catch (e) {
-  console.error("Erro ao entrar no lobby:", e);
-  setError("Falha ao entrar no lobby.");
-} finally {
-  setIsSubmitting(false);
-  setIsJoining(false);
+// 2. Tela de Erro
+if (status === GAME_STATUS.ERROR) {
+    return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-red-800 text-white p-6 rounded-xl shadow-2xl">
+            <Info className="w-10 h-10 mb-4" />
+            <h1 className="text-2xl font-bold">ERRO FATAL DE CONEXÃO</h1>
+            <p className="mt-2 text-center">Não foi possível conectar ao Firebase. Verifique a configuração ou tente novamente.</p>
+            <p className="mt-4 text-xs">ID do Aplicativo: {appId}</p>
+        </div>
+    );
 }
-// Removido getPublicCollectionRef das dependências.
 
-}, [db, userId]);
-// Inicia o jogo (apenas Host)
-const handleStartGame = useCallback(async () => {
-if (!db || !isHost || !roomId) return;
-setIsSubmitting(true);
-try {
-  const gameDocRef = doc(getPublicCollectionRef(db, 'games'), roomId);
-  // O host decide o prompt inicial ou passa para a fase de coleta de prompts
-  const updatedState = {
-    ...gameState,
-    status: 'WAITING_PROMPTS',
-    round: 1,
-    prompts: [], // Limpa prompts anteriores
-    answers: {},
-    guesses: {},
-    scores: players.reduce((acc, p) => ({ ...acc, [p.id]: 0 }), {}),
-    correctAnswerId: null,
-  };
-  await updateDoc(gameDocRef, { state: updatedState });
-} catch (e) {
-  console.error("Erro ao iniciar jogo:", e);
-  setError("Falha ao iniciar jogo.");
-} finally {
-  setIsSubmitting(false);
+// --- RENDERIZAÇÃO DA TELA DE ENTRADA ---
+if (status === GAME_STATUS.JOINING) {
+    return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-4">
+            <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl w-full max-w-md">
+                <h1 className="text-3xl font-extrabold text-purple-400 mb-6 flex items-center">
+                    <Zap className="mr-2" /> Foi Você?
+                </h1>
+                <p className="mb-6 text-gray-300">Digite seu nome para entrar na festa anônima.</p>
+                <input
+                    type="text"
+                    placeholder="Seu Nome/Nickname"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full p-3 mb-4 rounded-lg bg-gray-700 text-white border border-purple-500 focus:border-purple-300 focus:ring focus:ring-purple-300 transition"
+                    required
+                />
+                <button
+                    onClick={handleJoinGame}
+                    disabled={username.trim() === ''}
+                    className="w-full p-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg shadow-lg transition duration-300 disabled:opacity-50"
+                >
+                    Entrar no Jogo
+                </button>
+                <p className="mt-4 text-sm text-gray-400 text-center">Seu ID (para testes): {userId}</p>
+            </div>
+        </div>
+    );
 }
-// Removido getPublicCollectionRef das dependências.
 
-}, [db, isHost, roomId, gameState, players]);
-// Submete o prompt (fase WAITING_PROMPTS)
-const handleSubmitPrompt = useCallback(async () => {
-if (!db || !roomId || !myPrompt || myAnswer === undefined) return;
-setIsSubmitting(true);
-try {
-  const gameDocRef = doc(getPublicCollectionRef(db, 'games'), roomId);
-  
-  const newPromptEntry = {
-      text: myPrompt,
-      userId: userId,
-      answer: myAnswer
-  };
-  
-  // Atualiza o estado do jogo com o novo prompt
-  await updateDoc(gameDocRef, {
-    'state.prompts': [...gameState.prompts, newPromptEntry],
-  });
+// --- RENDERIZAÇÃO DA INTERFACE DO JOGO (Visão Geral) ---
+// Este é um mock simples da interface após o login
+const userPlayer = players.find(p => p.id === userId);
+const hasVoted = userPlayer?.vote !== null;
 
-  setMyPrompt('');
-  setMyAnswer('');
-
-} catch (e) {
-  console.error("Erro ao submeter prompt:", e);
-  setError("Falha ao enviar o prompt.");
-} finally {
-  setIsSubmitting(false);
-}
-// Removido getPublicCollectionRef das dependências.
-
-}, [db, roomId, myPrompt, myAnswer, userId, gameState]);
-// --- RENDERIZAÇÃO DE ESTADO ---
-if (!isAuthReady) {
 return (
-<div className="flex flex-col items-center justify-center h-screen text-gray-700 bg-gray-50">
-<Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-<p className="mt-4 font-semibold">Conectando ao servidor...</p>
-</div>
-);
-}
-// Se não estiver em um lobby
-if (!roomId) {
-return (
-<div className="p-6 max-w-sm mx-auto bg-white rounded-xl shadow-2xl space-y-4 m-8 border border-indigo-200">
-<h1 className="text-2xl font-extrabold text-center text-indigo-600">Foi Você? (Party Game)</h1>
-    {error && <p className="text-red-500 text-sm text-center font-medium p-2 bg-red-50 rounded-lg">{error}</p>}
+    <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
+        <header className="flex justify-between items-center pb-6 border-b border-gray-700 mb-6">
+            <h1 className="text-4xl font-extrabold text-purple-400 flex items-center"><Zap className="mr-2 h-8 w-8" /> Foi Você?</h1>
+            <div className="text-right">
+                <p className="font-semibold">Olá, {userPlayer?.username || 'Anônimo'}</p>
+                <p className="text-sm text-gray-500">ID: {userId}</p>
+            </div>
+        </header>
 
-    <div className="space-y-4">
-      <input
-        type="text"
-        placeholder="Código do Lobby"
-        value={lobbyIdInput}
-        onChange={(e) => setLobbyIdInput(e.target.value.toUpperCase().trim())}
-        className="w-full p-3 border border-indigo-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-center uppercase font-bold tracking-widest"
-        maxLength={4}
-      />
-      <button
-        onClick={() => handleJoinLobby(lobbyIdInput)}
-        disabled={lobbyIdInput.length !== 4 || isSubmitting}
-        className="w-full bg-indigo-500 text-white font-bold py-3 px-4 rounded-lg shadow-md hover:bg-indigo-600 transition duration-150 disabled:bg-indigo-300 flex items-center justify-center"
-      >
-        {isJoining ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Zap className="w-5 h-5 mr-2" />}
-        {isJoining ? 'Entrando...' : 'Entrar no Lobby'}
-      </button>
-    </div>
-
-    <div className="relative flex items-center justify-center py-2">
-      <div className="w-full border-t border-gray-200"></div>
-      <span className="absolute bg-white px-3 text-gray-500 text-sm font-medium">OU</span>
-    </div>
-
-    <button
-      onClick={handleCreateLobby}
-      disabled={isSubmitting}
-      className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg shadow-md hover:bg-green-600 transition duration-150 disabled:bg-green-300 flex items-center justify-center"
-    >
-      {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Users className="w-5 h-5 mr-2" />}
-      {isSubmitting ? 'Criando...' : 'Criar Novo Lobby'}
-    </button>
-    <p className="text-xs text-gray-400 text-center break-all pt-2">Seu ID de Usuário: {userId}</p>
-  </div>
-);
-
-}
-// --- VISÃO DO JOGO (Dentro de um Lobby) ---
-const headerClasses = "text-center text-white p-3 rounded-t-xl font-extrabold flex justify-between items-center";
-const contentClasses = "p-4 bg-white rounded-b-xl shadow-inner";
-// Retorna o componente principal com o jogo
-return (
-<div className="max-w-xl w-full mx-auto my-4">
-<div className="bg-indigo-700 rounded-xl shadow-2xl">
-<header className={headerClasses}>
-<h2 className="text-xl">SALA: {roomId}</h2>
-<div className="text-sm bg-indigo-800 px-3 py-1 rounded-full">{isHost ? 'Host' : 'Jogador'}</div>
-</header>
-    {/* Informações dos Jogadores */}
-    <div className={contentClasses}>
-      <h3 className="text-lg font-bold mb-2 flex items-center"><Users className="w-5 h-5 mr-2 text-indigo-500" /> Jogadores ({players.length})</h3>
-      <ul className="grid grid-cols-2 gap-2 text-sm">
-        {players.map(p => (
-          <li key={p.id} className={`p-2 rounded-lg ${p.id === gameState?.hostId ? 'bg-yellow-100 font-bold border-2 border-yellow-400' : 'bg-gray-100'}`}>
-            {p.name} {p.id === userId && '(Você)'}
-          </li>
-        ))}
-      </ul>
-    </div>
-    
-    {/* Renderiza a tela baseada no Status do Jogo */}
-    {gameState && (
-      <div className="mt-4 bg-white rounded-b-xl shadow-lg">
-        
-        {/* ESTADO: LOBBY */}
-        {gameState.status === 'LOBBY' && (
-          <div className="p-6 space-y-4">
-            <h3 className="text-xl font-bold text-center text-gray-800">Aguardando Início do Jogo...</h3>
-            <p className="text-center text-sm text-gray-600">O Host ({players.find(p => p.id === gameState.hostId)?.name || '...'}) deve iniciar o jogo.</p>
-            {isHost && players.length >= 2 ? (
-              <button
-                onClick={handleStartGame}
-                disabled={isSubmitting}
-                className="w-full bg-green-600 text-white font-bold py-3 rounded-lg shadow-md hover:bg-green-700 transition disabled:bg-green-300"
-              >
-                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Zap className="w-5 h-5 mr-2" />}
-                Iniciar Rodada 1
-              </button>
-            ) : isHost ? (
-              <p className="text-center text-red-500 font-semibold">Mínimo de 2 jogadores para iniciar.</p>
-            ) : null}
-          </div>
-        )}
-
-        {/* ESTADO: WAITING_PROMPTS (Coleta de Perguntas) */}
-        {gameState.status === 'WAITING_PROMPTS' && (
-          <div className="p-6 space-y-4">
-            <h3 className="text-xl font-bold text-center text-indigo-600">Rodada {gameState.round}: Envie um Prompt</h3>
+        <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             
-            {gameState.prompts.some(p => p.userId === userId) ? (
-                <p className="text-center text-green-600 font-semibold flex items-center justify-center">
-                    <CheckCheck className="w-5 h-5 mr-1"/> Seu prompt e resposta foram enviados. Aguarde os outros jogadores.
-                </p>
-            ) : (
-                <div className="space-y-4">
-                    <p className="text-sm text-gray-600">Pense em uma pergunta engraçada, estranha ou pessoal. Você fornecerá a resposta verdadeira para ela.</p>
+            {/* Coluna 1: Jogadores e Status */}
+            <div className="lg:col-span-1 bg-gray-800 p-6 rounded-xl shadow-xl">
+                <h2 className="text-2xl font-bold mb-4 text-gray-300 flex items-center"><Users className="mr-2" /> Jogadores na Festa ({players.length})</h2>
+                <ul className="space-y-2 max-h-96 overflow-y-auto">
+                    {players.map((p) => (
+                        <li key={p.id} className={`p-3 rounded-lg flex justify-between items-center transition ${p.id === userId ? 'bg-purple-700 font-bold' : 'bg-gray-700'}`}>
+                            <span>{p.username} {p.id === userId && '(Você)'}</span>
+                            {status === GAME_STATUS.VOTING && (
+                                <button 
+                                    onClick={() => setVoteTargetId(p.id)}
+                                    disabled={p.id === userId || hasVoted}
+                                    className={`px-3 py-1 text-sm rounded-full transition duration-150 
+                                        ${p.id === voteTargetId ? 'bg-green-500' : 'bg-purple-500 hover:bg-purple-600'}
+                                        ${hasVoted ? 'opacity-50 cursor-not-allowed' : ''}
+                                    `}
+                                >
+                                    {p.id === voteTargetId ? 'Selecionado' : 'Votar'}
+                                </button>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+                <button
+                    onClick={handleVote}
+                    disabled={!voteTargetId || hasVoted}
+                    className="mt-6 w-full p-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg transition duration-300 disabled:opacity-50"
+                >
+                    {hasVoted ? 'Voto Enviado!' : 'Confirmar Voto'}
+                </button>
+
+            </div>
+
+            {/* Coluna 2: Chat Anônimo */}
+            <div className="lg:col-span-2 bg-gray-800 p-6 rounded-xl shadow-xl flex flex-col h-[70vh]">
+                <h2 className="text-2xl font-bold mb-4 text-gray-300 flex items-center"><Smile className="mr-2" /> Chat Anônimo</h2>
+                
+                {/* Área de Mensagens */}
+                <div className="flex-grow overflow-y-auto space-y-4 p-4 mb-4 bg-gray-700 rounded-lg">
+                    {messages.length === 0 ? (
+                        <p className="text-center text-gray-400 mt-4">Nenhuma mensagem ainda. Diga olá!</p>
+                    ) : (
+                        messages.map((msg) => {
+                            const isMine = msg.senderId === userId;
+                            return (
+                                <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-xs md:max-w-md p-3 rounded-xl shadow-md ${isMine ? 'bg-purple-600 text-white rounded-br-none' : 'bg-gray-600 text-white rounded-tl-none'}`}>
+                                        <p className="font-semibold text-xs mb-1 opacity-70">
+                                            {isMine ? 'Você (Anônimo)' : msg.senderName || 'Anônimo'}
+                                        </p>
+                                        <p>{msg.text}</p>
+                                        <span className="block text-right text-xs mt-1 opacity-50">
+                                            {msg.timestamp ? new Date(msg.timestamp.seconds * 1000).toLocaleTimeString() : ''}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+                
+                {/* Input de Mensagem */}
+                <form onSubmit={handleSendMessage} className="flex">
                     <input
                         type="text"
-                        placeholder="Seu Prompt (Pergunta)"
-                        value={myPrompt}
-                        onChange={(e) => setMyPrompt(e.target.value)}
-                        className="w-full p-3 border border-indigo-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
-                    />
-                    <input
-                        type="text"
-                        placeholder="Sua Resposta Verdadeira"
-                        value={myAnswer}
-                        onChange={(e) => setMyAnswer(e.target.value)}
-                        className="w-full p-3 border border-indigo-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                        name="messageInput"
+                        placeholder="Mande uma mensagem anônima..."
+                        className="flex-grow p-3 rounded-l-lg bg-gray-700 text-white border-none focus:ring-purple-500 focus:border-purple-500"
                     />
                     <button
-                        onClick={handleSubmitPrompt}
-                        disabled={!myPrompt || !myAnswer || isSubmitting}
-                        className="w-full bg-indigo-500 text-white font-bold py-3 rounded-lg shadow-md hover:bg-indigo-600 transition disabled:bg-indigo-300"
+                        type="submit"
+                        className="p-3 bg-purple-600 hover:bg-purple-700 text-white rounded-r-lg flex items-center transition duration-200"
                     >
-                        {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <MessageSquare className="w-5 h-5 mr-2" />}
-                        Enviar Prompt
+                        <Send className="w-5 h-5" />
+                    </button>
+                </form>
+            </div>
+        </main>
+
+        {/* Mock de Resultados (pode ser ativado pelo Host) */}
+        {status === GAME_STATUS.RESULTS && (
+            <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4">
+                <div className="bg-gray-800 p-8 rounded-xl w-full max-w-lg shadow-2xl">
+                    <h2 className="text-3xl font-bold mb-6 text-yellow-400">Resultados da Votação!</h2>
+                    <p className="mb-4">A pergunta era: "{currentQuestion}"</p>
+                    <ul className="space-y-3">
+                        {players.map(p => (
+                            <li key={p.id} className="flex justify-between items-center p-3 bg-gray-700 rounded-lg">
+                                <span className="font-semibold">{p.username}</span>
+                                <span className="text-xl font-extrabold text-purple-400">
+                                    {voteCounts[p.id] || 0} Votos
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                    <button 
+                        onClick={() => setStatus(GAME_STATUS.WAITING_FOR_QUESTION)}
+                        className="mt-8 w-full p-3 bg-purple-600 hover:bg-purple-700 font-bold rounded-lg transition"
+                    >
+                        Nova Rodada
                     </button>
                 </div>
-            )}
-            
-            <p className="text-sm text-gray-500 text-center mt-4">Prompts Recebidos: {gameState.prompts.length} de {players.length}</p>
-            {/* Lógica do Host para Próxima Fase (Não implementada completamente aqui, mas o Host faria a transição) */}
-            {isHost && gameState.prompts.length === players.length && (
-                <p className="text-center text-gray-700 font-semibold pt-2">O Host pode avançar o jogo agora (funcionalidade de Host avançar não totalmente implementada neste esboço).</p>
-            )}
-
-          </div>
+            </div>
         )}
-        
-        {/* Você pode adicionar outros status (WAITING_GUESSES, REVEALING, FINISHED) aqui. */}
-
-      </div>
-    )}
-  </div>
-</div>
-
+    </div>
 );
+
 };
