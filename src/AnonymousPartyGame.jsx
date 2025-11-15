@@ -7,7 +7,6 @@ setDoc, addDoc, updateDoc, deleteDoc, query
 } from 'firebase/firestore';
 import { Loader2, Zap, Users, Send, Smile, Info } from 'lucide-react';
 // === 1. CONFIGURAÇÃO DE AMBIENTE DO CANVAS (CRÍTICO) ===
-// O app ID é obrigatório para construir os caminhos do Firestore.
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -34,55 +33,72 @@ const [username, setUsername] = useState('');
 // === ESTADO DO JOGO ===
 const [players, setPlayers] = useState([]);
 const [messages, setMessages] = useState([]);
-const [currentQuestion, setCurrentQuestion] = useState('Quem é o mais engraçado da festa?'); // Mock de pergunta
+const [currentQuestion, setCurrentQuestion] = useState('Quem é o mais engraçado da festa?'); 
 const [voteTargetId, setVoteTargetId] = useState(null);
 
-// === LÓGICA DE FIREBASE E AUTENTICAÇÃO (CORREÇÃO DE "CARREGANDO") ===
+// === LÓGICA DE FIREBASE E AUTENTICAÇÃO (COM DIAGNÓSTICO) ===
 useEffect(() => {
+    console.log("DIAGNOSTICO: Iniciando useEffect para Firebase.");
+
     if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
-        console.error("Configuração do Firebase não encontrada.");
+        console.error("DIAGNOSTICO: Configuração do Firebase não encontrada. VERIFICAR __firebase_config.");
         setStatus(GAME_STATUS.ERROR);
         return;
     }
 
-    const app = initializeApp(firebaseConfig);
-    const firestoreDb = getFirestore(app);
-    const firebaseAuth = getAuth(app);
-    
-    setDb(firestoreDb);
-    setAuth(firebaseAuth);
+    try {
+        // Inicializa o app e serviços
+        const app = initializeApp(firebaseConfig);
+        const firestoreDb = getFirestore(app);
+        const firebaseAuth = getAuth(app);
+        
+        setDb(firestoreDb);
+        setAuth(firebaseAuth);
+        console.log("DIAGNOSTICO: Firebase App, DB e Auth inicializados.");
 
-    const authenticate = async () => {
-        try {
-            if (initialAuthToken) {
-                await signInWithCustomToken(firebaseAuth, initialAuthToken);
-            } else {
-                await signInAnonymously(firebaseAuth);
+        const authenticate = async () => {
+            console.log("DIAGNOSTICO: Iniciando autenticação.");
+            try {
+                if (initialAuthToken) {
+                    console.log("DIAGNOSTICO: Tentando signInWithCustomToken...");
+                    await signInWithCustomToken(firebaseAuth, initialAuthToken);
+                    console.log("DIAGNOSTICO: signInWithCustomToken SUCESSO.");
+                } else {
+                    console.log("DIAGNOSTICO: Token não encontrado. Tentando signInAnonymously...");
+                    await signInAnonymously(firebaseAuth);
+                    console.log("DIAGNOSTICO: signInAnonymously SUCESSO.");
+                }
+                
+                const user = firebaseAuth.currentUser;
+                const uid = user?.uid || crypto.randomUUID(); 
+                setUserId(uid);
+                
+                console.log("DIAGNOSTICO: Autenticação concluída. UID:", uid);
+                // Mude o status APÓS a autenticação bem-sucedida (CORREÇÃO DE CARREGAMENTO)
+                setStatus(GAME_STATUS.JOINING); 
+                console.log("DIAGNOSTICO: Status alterado para JOINING.");
+
+            } catch (authError) {
+                console.error("ERRO FATAL DE AUTENTICAÇÃO:", authError.code, authError.message);
+                setStatus(GAME_STATUS.ERROR);
             }
-            
-            const user = firebaseAuth.currentUser;
-            // Gera um ID de usuário anônimo ou usa o UID fornecido
-            const uid = user?.uid || crypto.randomUUID(); 
-            setUserId(uid);
-            
-            // Mude o status APÓS a autenticação bem-sucedida
-            setStatus(GAME_STATUS.JOINING); 
+        };
 
-        } catch (error) {
-            console.error("Erro na inicialização/autenticação do Firebase:", error);
-            setStatus(GAME_STATUS.ERROR);
-        }
-    };
+        authenticate();
 
-    authenticate();
+    } catch (initError) {
+        console.error("ERRO FATAL DE INICIALIZAÇÃO DO FIREBASE:", initError.message);
+        setStatus(GAME_STATUS.ERROR);
+    }
 }, []);
 
-// === LÓGICA DE ENTRADA DO JOGO E DATASCRIPTIONS ===
+// === LÓGICA DE ENTRADA DO JOGO E DATASCRIPTIONS (MANTIDA) ===
 
 // 1. Inscrição em jogadores (Real-time update)
 useEffect(() => {
-    if (!db || status === GAME_STATUS.LOADING || status === GAME_STATUS.ERROR) return;
+    if (!db || status === GAME_STATUS.LOADING || status === GAME_STATUS.ERROR || status === GAME_STATUS.JOINING) return;
 
+    console.log("DIAGNOSTICO: Iniciando onSnapshot para Players.");
     const playersQuery = query(collection(db, COL_PLAYERS));
     const unsubscribe = onSnapshot(playersQuery, (snapshot) => {
         const playerList = snapshot.docs.map(doc => ({ 
@@ -99,8 +115,9 @@ useEffect(() => {
 
 // 2. Inscrição em mensagens (Real-time update)
 useEffect(() => {
-    if (!db || status === GAME_STATUS.LOADING || status === GAME_STATUS.ERROR) return;
+    if (!db || status === GAME_STATUS.LOADING || status === GAME_STATUS.ERROR || status === GAME_STATUS.JOINING) return;
 
+    console.log("DIAGNOSTICO: Iniciando onSnapshot para Messages.");
     const messagesQuery = query(collection(db, COL_MESSAGES));
     const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
         const messageList = snapshot.docs
@@ -124,12 +141,12 @@ const handleJoinGame = useCallback(async () => {
         await setDoc(playerRef, {
             username: username,
             joinedAt: new Date(),
-            isHost: players.length === 0, // O primeiro a entrar é o host
+            isHost: players.length === 0, 
             vote: null,
-            isAnonymous: true // Característica do jogo
+            isAnonymous: true 
         });
         setStatus(GAME_STATUS.WAITING_FOR_QUESTION);
-        console.log("Jogador entrou:", username);
+        console.log("DIAGNOSTICO: Jogador entrou:", username);
     } catch (e) {
         console.error("Erro ao entrar no jogo:", e);
     }
@@ -142,8 +159,8 @@ const handleVote = useCallback(async () => {
     try {
         const playerRef = doc(db, COL_PLAYERS, userId);
         await updateDoc(playerRef, { vote: voteTargetId, votedAt: new Date() });
-        setStatus(GAME_STATUS.VOTING); // Permanece em voting para mostrar que votou
-        console.log(`Usuário ${userId} votou em ${voteTargetId}`);
+        setStatus(GAME_STATUS.VOTING); 
+        console.log(`DIAGNOSTICO: Usuário ${userId} votou em ${voteTargetId}`);
     } catch (e) {
         console.error("Erro ao votar:", e);
     }
@@ -170,16 +187,16 @@ const handleSendMessage = async (e) => {
     if (!db || !userId || text === '') return;
 
     try {
-        // O nome do usuário é o nome que ele escolheu, mas o chat é anônimo.
         const userPlayer = players.find(p => p.id === userId);
 
         await addDoc(collection(db, COL_MESSAGES), {
-            senderId: userId, // ID real para rastreamento interno
-            senderName: userPlayer ? userPlayer.username : 'Anônimo', // Nome para exibição (se quiser)
+            senderId: userId, 
+            senderName: userPlayer ? userPlayer.username : 'Anônimo', 
             text: text,
             timestamp: new Date()
         });
-        input.value = ''; // Limpa o input
+        input.value = ''; 
+        console.log("DIAGNOSTICO: Mensagem enviada.");
     } catch (e) {
         console.error("Erro ao enviar mensagem:", e);
     }
@@ -187,7 +204,7 @@ const handleSendMessage = async (e) => {
 
 // --- RENDERIZAÇÃO DA TELA DE CARREGAMENTO/ERRO ---
 
-// 1. Tela de Carregamento (Sai após autenticação bem-sucedida)
+// 1. Tela de Carregamento 
 if (status === GAME_STATUS.LOADING) {
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-4">
@@ -204,7 +221,7 @@ if (status === GAME_STATUS.ERROR) {
         <div className="flex flex-col items-center justify-center min-h-screen bg-red-800 text-white p-6 rounded-xl shadow-2xl">
             <Info className="w-10 h-10 mb-4" />
             <h1 className="text-2xl font-bold">ERRO FATAL DE CONEXÃO</h1>
-            <p className="mt-2 text-center">Não foi possível conectar ao Firebase. Verifique a configuração ou tente novamente.</p>
+            <p className="mt-2 text-center">Não foi possível conectar ao Firebase. Verifique o console para mais detalhes.</p>
             <p className="mt-4 text-xs">ID do Aplicativo: {appId}</p>
         </div>
     );
@@ -241,7 +258,6 @@ if (status === GAME_STATUS.JOINING) {
 }
 
 // --- RENDERIZAÇÃO DA INTERFACE DO JOGO (Visão Geral) ---
-// Este é um mock simples da interface após o login
 const userPlayer = players.find(p => p.id === userId);
 const hasVoted = userPlayer?.vote !== null;
 
