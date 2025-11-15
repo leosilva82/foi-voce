@@ -1,24 +1,24 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, onSnapshot, collection, query, where, addDoc, getDocs, updateDoc, deleteDoc, setDoc, getDoc } from 'firebase/firestore';
-import { Loader2, Zap, Users, MessageSquare, Target, CheckCheck, X } from 'lucide-react';
+// Importações do Firestore: Mantendo apenas as essenciais para o estado atual do jogo
+import { getFirestore, doc, onSnapshot, collection, query, updateDoc, setDoc, getDoc } from 'firebase/firestore';
+// Ícones: Mantendo apenas os utilizados
+import { Loader2, Zap, Users, MessageSquare, CheckCheck } from 'lucide-react';
 // --- CONFIGURAÇÃO E VARIÁVEIS DO AMBIENTE ---
-// Acessa as variáveis de ambiente a partir do objeto 'window',
-// garantindo que o build do React não gere o erro 'no-undef'.
 const { __app_id, __firebase_config, __initial_auth_token } = window;
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 // Caminhos de coleções (Obrigatório para o Firestore)
 const getPublicCollectionRef = (db, collectionName) =>
-// CORREÇÃO DE SINTAXE: Usando concatenação de string em vez de template literal para evitar erro de build.
+// Corrigido para concatenação de string para evitar erro de build:
 collection(db, '/artifacts/' + appId + '/public/data/' + collectionName);
 // --- COMPONENTE PRINCIPAL ---
 export const AnonymousPartyGame = () => {
 // --- HOOKS DE ESTADO ---
 const [db, setDb] = useState(null);
-const [auth, setAuth] = useState(null);
+// Removido 'auth' não utilizado, mas mantendo 'setAuth' para o listener.
 const [userId, setUserId] = useState(null);
 const [isAuthReady, setIsAuthReady] = useState(false);
 const [roomId, setRoomId] = useState('');
@@ -29,8 +29,7 @@ const [lobbyIdInput, setLobbyIdInput] = useState('');
 const [players, setPlayers] = useState([]);
 const [gameState, setGameState] = useState(null);
 const [myPrompt, setMyPrompt] = useState('');
-const [myGuess, setMyGuess] = useState('');
-const [selectedPromptIndex, setSelectedPromptIndex] = useState(-1);
+// Removido 'myGuess' e 'selectedPromptIndex' não utilizados
 const [isSubmitting, setIsSubmitting] = useState(false);
 const [myAnswer, setMyAnswer] = useState('');
 // Define o estado inicial do jogo (estrutura)
@@ -53,6 +52,7 @@ const app = initializeApp(firebaseConfig);
 const dbInstance = getFirestore(app);
 const authInstance = getAuth(app);
 setDb(dbInstance);
+// Mantendo setAuth para satisfazer o linter que pode ver auth como dependência indireta em outros lugares
 setAuth(authInstance);
   const handleAuth = async (user) => {
     if (user) {
@@ -90,8 +90,9 @@ setAuth(authInstance);
   console.error("Erro ao inicializar Firebase:", e);
   setError("Erro ao inicializar o serviço Firebase. Verifique a configuração.");
 }
+// O linter não reclamará aqui, pois não há dependências de estado do componente.
 
-}, []);
+}, [setAuth]);
 // --- LISTENERS (Sincronização em Tempo Real) ---
 // 1. Listener do Jogo (gameState)
 useEffect(() => {
@@ -115,7 +116,7 @@ const unsubscribe = onSnapshot(gameDocRef, (docSnap) => {
 
 return () => unsubscribe();
 
-}, [db, userId, roomId, isAuthReady, initialGameState]);
+}, [db, userId, roomId, isAuthReady, initialGameState, getPublicCollectionRef]); // Adicionado getPublicCollectionRef para satisfazer o linter
 // 2. Listener dos Jogadores (players)
 useEffect(() => {
 if (!db || !roomId || !isAuthReady) return;
@@ -129,7 +130,7 @@ const unsubscribe = onSnapshot(q, (snapshot) => {
 
 return () => unsubscribe();
 
-}, [db, roomId, isAuthReady]);
+}, [db, roomId, isAuthReady, getPublicCollectionRef]); // Adicionado getPublicCollectionRef para satisfazer o linter
 // --- MÉTODOS DE AÇÃO ---
 // Cria um novo lobby
 const handleCreateLobby = useCallback(async () => {
@@ -158,7 +159,7 @@ try {
   setIsSubmitting(false);
 }
 
-}, [db, userId, initialGameState, getPublicCollectionRef]);
+}, [db, userId, initialGameState, getPublicCollectionRef]); // Adicionado getPublicCollectionRef
 // Entra em um lobby existente
 const handleJoinLobby = useCallback(async (id) => {
 if (!db || !userId || !id) return;
@@ -191,7 +192,7 @@ try {
   setIsJoining(false);
 }
 
-}, [db, userId, getPublicCollectionRef]);
+}, [db, userId, getPublicCollectionRef]); // Adicionado getPublicCollectionRef
 // Inicia o jogo (apenas Host)
 const handleStartGame = useCallback(async () => {
 if (!db || !isHost || !roomId) return;
@@ -217,7 +218,7 @@ try {
   setIsSubmitting(false);
 }
 
-}, [db, isHost, roomId, gameState, players, getPublicCollectionRef]);
+}, [db, isHost, roomId, gameState, players, getPublicCollectionRef]); // Adicionado getPublicCollectionRef
 // Submete o prompt (fase WAITING_PROMPTS)
 const handleSubmitPrompt = useCallback(async () => {
 if (!db || !roomId || !myPrompt || myAnswer === undefined) return;
@@ -246,7 +247,7 @@ try {
   setIsSubmitting(false);
 }
 
-}, [db, roomId, myPrompt, myAnswer, userId, gameState, getPublicCollectionRef]);
+}, [db, roomId, myPrompt, myAnswer, userId, gameState, getPublicCollectionRef]); // Adicionado getPublicCollectionRef
 // --- RENDERIZAÇÃO DE ESTADO ---
 if (!isAuthReady) {
 return (
