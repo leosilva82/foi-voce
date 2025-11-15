@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-// setDoc e getDoc foram adicionados à importação abaixo
 import { getFirestore, doc, onSnapshot, collection, query, where, addDoc, getDocs, updateDoc, deleteDoc, setDoc, getDoc } from 'firebase/firestore';
 import { Loader2, Zap, Users, MessageSquare, Target, CheckCheck, X } from 'lucide-react';
 // --- CONFIGURAÇÃO E VARIÁVEIS DO AMBIENTE ---
+// A solução é acessar as variáveis de ambiente a partir do objeto 'window',
+// o que é compatível com o ambiente de build do React.
+const { __app_id, __firebase_config, __initial_auth_token } = window;
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 // Caminhos de coleções (Obrigatório para o Firestore)
-// Usando concatenação de string (+) para evitar o bug do linter com template literals.
 const getPublicCollectionRef = (db, collectionName) =>
-collection(db, '/artifacts/' + appId + '/public/data/' + collectionName);
+collection(db, /artifacts/${appId}/public/data/${collectionName});
 // --- COMPONENTE PRINCIPAL ---
 export const AnonymousPartyGame = () => {
 // --- HOOKS DE ESTADO ---
@@ -156,7 +157,7 @@ try {
   setIsSubmitting(false);
 }
 
-}, [db, userId, initialGameState]);
+}, [db, userId, initialGameState, getPublicCollectionRef]);
 // Entra em um lobby existente
 const handleJoinLobby = useCallback(async (id) => {
 if (!db || !userId || !id) return;
@@ -189,7 +190,7 @@ try {
   setIsJoining(false);
 }
 
-}, [db, userId]);
+}, [db, userId, getPublicCollectionRef]);
 // Inicia o jogo (apenas Host)
 const handleStartGame = useCallback(async () => {
 if (!db || !isHost || !roomId) return;
@@ -215,7 +216,7 @@ try {
   setIsSubmitting(false);
 }
 
-}, [db, isHost, roomId, gameState, players]);
+}, [db, isHost, roomId, gameState, players, getPublicCollectionRef]);
 // Submete o prompt (fase WAITING_PROMPTS)
 const handleSubmitPrompt = useCallback(async () => {
 if (!db || !roomId || !myPrompt || myAnswer === undefined) return;
@@ -244,7 +245,7 @@ try {
   setIsSubmitting(false);
 }
 
-}, [db, roomId, myPrompt, myAnswer, userId, gameState]);
+}, [db, roomId, myPrompt, myAnswer, userId, gameState, getPublicCollectionRef]);
 // --- RENDERIZAÇÃO DE ESTADO ---
 if (!isAuthReady) {
 return (
