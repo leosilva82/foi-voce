@@ -4,16 +4,16 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, onSnapshot, collection, query, where, addDoc, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
 import { Loader2, Zap, Users, MessageSquare, Target, CheckCheck, X } from 'lucide-react';
 // --- CONFIGURAÇÃO E VARIÁVEIS DO AMBIENTE ---
-// O build falha porque não conhece estas variáveis. Usamos um fallback seguro.
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 // Caminhos de coleções (Obrigatório para o Firestore)
+// CORREÇÃO: Usando concatenação de string (+) para evitar o bug do linter com template literals.
 const getPublicCollectionRef = (db, collectionName) =>
-collection(db, /artifacts/${appId}/public/data/${collectionName});
+collection(db, '/artifacts/' + appId + '/public/data/' + collectionName);
 // --- COMPONENTE PRINCIPAL ---
 export const AnonymousPartyGame = () => {
-// --- HOOKS DE ESTADO (Chamados incondicionalmente no topo) ---
+// --- HOOKS DE ESTADO ---
 const [db, setDb] = useState(null);
 const [auth, setAuth] = useState(null);
 const [userId, setUserId] = useState(null);
@@ -24,7 +24,6 @@ const [isJoining, setIsJoining] = useState(false);
 const [error, setError] = useState('');
 const [lobbyIdInput, setLobbyIdInput] = useState('');
 const [players, setPlayers] = useState([]);
-// GameState agora inicializado sem anotações complexas de tipo JSDoc
 const [gameState, setGameState] = useState(null);
 const [myPrompt, setMyPrompt] = useState('');
 const [myGuess, setMyGuess] = useState('');
