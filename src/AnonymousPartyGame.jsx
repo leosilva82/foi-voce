@@ -15,8 +15,8 @@ collection(db, '/artifacts/' + appId + '/public/data/' + collectionName);
 export const AnonymousPartyGame = () => {
 // --- HOOKS DE ESTADO ---
 const [db, setDb] = useState(null);
-// RE-ADICIONADO: O estado 'auth' é necessário para definir 'setAuth'.
-const [auth, setAuth] = useState(null);
+// O estado 'auth' foi removido pois a instância é usada diretamente no useEffect.
+// const [auth, setAuth] = useState(null);
 const [userId, setUserId] = useState(null);
 const [isAuthReady, setIsAuthReady] = useState(false);
 const [roomId, setRoomId] = useState('');
@@ -49,7 +49,7 @@ const app = initializeApp(firebaseConfig);
 const dbInstance = getFirestore(app);
 const authInstance = getAuth(app);
   setDb(dbInstance);
-  setAuth(authInstance); // Agora setAuth está definido
+  // setAuth(authInstance); // setAuth removido
 
   const handleAuth = async (user) => {
     if (user) {
@@ -87,13 +87,13 @@ const authInstance = getAuth(app);
   console.error("Erro ao inicializar Firebase:", e);
   setError("Erro ao inicializar o serviço Firebase. Verifique a configuração.");
 }
-// SetAuth é uma função de dispatch de estado do React, mas é estável. Incluímos setAuth e setDb por boa prática.
+
 return () => {
     // Cleanup function for onAuthStateChanged is already handled above in the else block
     // No need for a global unsubscribe here since onAuthStateChanged is handled.
 };
 
-}, [setAuth, setDb]); // setAuth e setDb são funções estáveis e seguras de incluir
+}, [setDb]); // setDb é uma função estável e segura de incluir. setAuth foi removido.
 // --- LISTENERS (Sincronização em Tempo Real) ---
 // 1. Listener do Jogo (gameState)
 useEffect(() => {
@@ -115,9 +115,10 @@ const unsubscribe = onSnapshot(gameDocRef, (docSnap) => {
   setError("Erro de conexão com o jogo.");
 });
 
+// Removido getPublicCollectionRef das dependências.
 return () => unsubscribe();
 
-}, [db, userId, roomId, isAuthReady, initialGameState, getPublicCollectionRef]);
+}, [db, userId, roomId, isAuthReady, initialGameState]);
 // 2. Listener dos Jogadores (players)
 useEffect(() => {
 if (!db || !roomId || !isAuthReady) return;
@@ -129,9 +130,10 @@ const unsubscribe = onSnapshot(q, (snapshot) => {
   setPlayers(playerList);
 });
 
+// Removido getPublicCollectionRef das dependências.
 return () => unsubscribe();
 
-}, [db, roomId, isAuthReady, getPublicCollectionRef]);
+}, [db, roomId, isAuthReady]);
 // --- MÉTODOS DE AÇÃO ---
 // Cria um novo lobby
 const handleCreateLobby = useCallback(async () => {
@@ -159,8 +161,9 @@ try {
 } finally {
   setIsSubmitting(false);
 }
+// Removido getPublicCollectionRef das dependências.
 
-}, [db, userId, initialGameState, getPublicCollectionRef]);
+}, [db, userId, initialGameState]);
 // Entra em um lobby existente
 const handleJoinLobby = useCallback(async (id) => {
 if (!db || !userId || !id) return;
@@ -192,8 +195,9 @@ try {
   setIsSubmitting(false);
   setIsJoining(false);
 }
+// Removido getPublicCollectionRef das dependências.
 
-}, [db, userId, getPublicCollectionRef]);
+}, [db, userId]);
 // Inicia o jogo (apenas Host)
 const handleStartGame = useCallback(async () => {
 if (!db || !isHost || !roomId) return;
@@ -218,8 +222,9 @@ try {
 } finally {
   setIsSubmitting(false);
 }
+// Removido getPublicCollectionRef das dependências.
 
-}, [db, isHost, roomId, gameState, players, getPublicCollectionRef]);
+}, [db, isHost, roomId, gameState, players]);
 // Submete o prompt (fase WAITING_PROMPTS)
 const handleSubmitPrompt = useCallback(async () => {
 if (!db || !roomId || !myPrompt || myAnswer === undefined) return;
@@ -247,8 +252,9 @@ try {
 } finally {
   setIsSubmitting(false);
 }
+// Removido getPublicCollectionRef das dependências.
 
-}, [db, roomId, myPrompt, myAnswer, userId, gameState, getPublicCollectionRef]);
+}, [db, roomId, myPrompt, myAnswer, userId, gameState]);
 // --- RENDERIZAÇÃO DE ESTADO ---
 if (!isAuthReady) {
 return (
