@@ -14,7 +14,6 @@ const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__f
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
 // --- Estrutura de dados (Usando concatenação de string para evitar erro de sintaxe) ---
-// Linhas 13 e 14 alteradas para usar '+' em vez de template literals
 const COL_PLAYERS = "/artifacts/" + appId + "/public/data/players";
 const COL_MESSAGES = "/artifacts/" + appId + "/public/data/messages";
 
@@ -74,7 +73,7 @@ const AnonymousPartyGame = () => {
                     if (user && user.uid) {
                         uid = user.uid;
                     } else {
-                        // randomUUID é suportado no ambiente Node 22.16.0
+                        // crypto.randomUUID é suportado no ambiente Node 22.16.0
                         uid = crypto.randomUUID(); 
                     }
                     
