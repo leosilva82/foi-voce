@@ -4,15 +4,16 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, onSnapshot, collection, query, where, addDoc, getDocs, updateDoc, deleteDoc, setDoc, getDoc } from 'firebase/firestore';
 import { Loader2, Zap, Users, MessageSquare, Target, CheckCheck, X } from 'lucide-react';
 // --- CONFIGURAÇÃO E VARIÁVEIS DO AMBIENTE ---
-// A solução é acessar as variáveis de ambiente a partir do objeto 'window',
-// o que é compatível com o ambiente de build do React.
+// Acessa as variáveis de ambiente a partir do objeto 'window',
+// garantindo que o build do React não gere o erro 'no-undef'.
 const { __app_id, __firebase_config, __initial_auth_token } = window;
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 // Caminhos de coleções (Obrigatório para o Firestore)
 const getPublicCollectionRef = (db, collectionName) =>
-collection(db, /artifacts/${appId}/public/data/${collectionName});
+// CORREÇÃO DE SINTAXE: Usando concatenação de string em vez de template literal para evitar erro de build.
+collection(db, '/artifacts/' + appId + '/public/data/' + collectionName);
 // --- COMPONENTE PRINCIPAL ---
 export const AnonymousPartyGame = () => {
 // --- HOOKS DE ESTADO ---
