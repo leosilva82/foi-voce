@@ -36,7 +36,7 @@ const [messages, setMessages] = useState([]);
 const [currentQuestion, setCurrentQuestion] = useState('Quem é o mais engraçado da festa?'); 
 const [voteTargetId, setVoteTargetId] = useState(null);
 
-// === LÓGICA DE FIREBASE E AUTENTICAÇÃO (SINTAXE SIMPLIFICADA) ===
+// === LÓGICA DE FIREBASE E AUTENTICAÇÃO (SINTAXE COMPATÍVEL) ===
 useEffect(() => {
     if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
         console.error("Configuração do Firebase não encontrada.");
@@ -63,7 +63,7 @@ useEffect(() => {
                 const user = firebaseAuth.currentUser;
                 let uid;
                 
-                // CORREÇÃO DE SINTAXE: Evitando Optional Chaining (?. ) para compatibilidade.
+                // CORREÇÃO DE SINTAXE: Usando if/else tradicional para garantir compatibilidade
                 if (user && user.uid) {
                     uid = user.uid;
                 } else {
@@ -71,7 +71,6 @@ useEffect(() => {
                 }
                 
                 setUserId(uid);
-                // Mude o status APÓS a autenticação bem-sucedida
                 setStatus(GAME_STATUS.JOINING); 
 
             } catch (authError) {
@@ -108,7 +107,7 @@ useEffect(() => {
     return () => unsubscribe();
 }, [db, status]);
 
-// 2. Inscrição em mensagens 
+// 2. Inscrição em mensagens (CORREÇÃO DE SINTAXE DE ORDENAÇÃO)
 useEffect(() => {
     if (!db || status === GAME_STATUS.LOADING || status === GAME_STATUS.ERROR || status === GAME_STATUS.JOINING) return;
 
@@ -116,7 +115,12 @@ useEffect(() => {
     const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
         const messageList = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() }))
-            .sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
+            .sort((a, b) => {
+                // CÓDIGO CORRIGIDO: Removendo o '?.toMillis()' para compatibilidade
+                const timeA = a.timestamp && typeof a.timestamp.toMillis === 'function' ? a.timestamp.toMillis() : 0;
+                const timeB = b.timestamp && typeof b.timestamp.toMillis === 'function' ? b.timestamp.toMillis() : 0;
+                return timeA - timeB;
+            });
         setMessages(messageList);
     }, (error) => {
         console.error("Erro ao carregar mensagens:", error);
@@ -312,11 +316,11 @@ return (
                                 <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`max-w-xs md:max-w-md p-3 rounded-xl shadow-md ${isMine ? 'bg-purple-600 text-white rounded-br-none' : 'bg-gray-600 text-white rounded-tl-none'}`}>
                                         <p className="font-semibold text-xs mb-1 opacity-70">
-                                            {isMine ? 'Você (Anônimo)' : msg.senderName || 'Anônimo'}
+                                            {msg.senderId === userId ? 'Você (Anônimo)' : msg.senderName || 'Anônimo'}
                                         </p>
                                         <p>{msg.text}</p>
                                         <span className="block text-right text-xs mt-1 opacity-50">
-                                            {/* Usando new Date(msg.timestamp.seconds * 1000) de forma segura */}
+                                            {/* Verificação segura do timestamp */}
                                             {msg.timestamp && msg.timestamp.seconds ? new Date(msg.timestamp.seconds * 1000).toLocaleTimeString() : ''}
                                         </span>
                                     </div>
