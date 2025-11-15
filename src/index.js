@@ -1,18 +1,18 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-// A linha de importação do CSS é necessária para o build!
-import './index.css'; 
 import App from './App.jsx';
-import { AnonymousPartyGame } from './AnonymousPartyGame.jsx'; 
-
-// Use o componente principal App
-const root = ReactDOM.createRoot(document.getElementById('root'));
-
+// Importe um arquivo CSS aqui se ele existir (ex: import './index.css';)
+// Use a API de root moderna do React 18
+const container = document.getElementById('root');
+// Verifica se o container existe antes de criar o root
+if (container) {
+const root = ReactDOM.createRoot(container);
 root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
+// StrictMode é útil para detectar problemas potenciais no desenvolvimento
+<React.StrictMode>
+<App />
+</React.StrictMode>
 );
-
-// Nota: Se o seu App.jsx estiver vazio, o build pode falhar em uma etapa futura, mas o erro de CSS será resolvido.
-
+} else {
+console.error("Erro: Elemento com id 'root' não encontrado no index.html.");
+}
