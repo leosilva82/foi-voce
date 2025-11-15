@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, onSnapshot, collection, query, where, addDoc, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
+// setDoc e getDoc foram adicionados à importação abaixo
+import { getFirestore, doc, onSnapshot, collection, query, where, addDoc, getDocs, updateDoc, deleteDoc, setDoc, getDoc } from 'firebase/firestore';
 import { Loader2, Zap, Users, MessageSquare, Target, CheckCheck, X } from 'lucide-react';
 // --- CONFIGURAÇÃO E VARIÁVEIS DO AMBIENTE ---
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 // Caminhos de coleções (Obrigatório para o Firestore)
-// CORREÇÃO: Usando concatenação de string (+) para evitar o bug do linter com template literals.
+// Usando concatenação de string (+) para evitar o bug do linter com template literals.
 const getPublicCollectionRef = (db, collectionName) =>
 collection(db, '/artifacts/' + appId + '/public/data/' + collectionName);
 // --- COMPONENTE PRINCIPAL ---
