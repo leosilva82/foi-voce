@@ -36,51 +36,47 @@ const [messages, setMessages] = useState([]);
 const [currentQuestion, setCurrentQuestion] = useState('Quem é o mais engraçado da festa?'); 
 const [voteTargetId, setVoteTargetId] = useState(null);
 
-// === LÓGICA DE FIREBASE E AUTENTICAÇÃO (COM DIAGNÓSTICO) ===
+// === LÓGICA DE FIREBASE E AUTENTICAÇÃO (SINTAXE SIMPLIFICADA) ===
 useEffect(() => {
-    console.log("DIAGNOSTICO: Iniciando useEffect para Firebase.");
-
     if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
-        console.error("DIAGNOSTICO: Configuração do Firebase não encontrada. VERIFICAR __firebase_config.");
+        console.error("Configuração do Firebase não encontrada.");
         setStatus(GAME_STATUS.ERROR);
         return;
     }
 
     try {
-        // Inicializa o app e serviços
         const app = initializeApp(firebaseConfig);
         const firestoreDb = getFirestore(app);
         const firebaseAuth = getAuth(app);
         
         setDb(firestoreDb);
         setAuth(firebaseAuth);
-        console.log("DIAGNOSTICO: Firebase App, DB e Auth inicializados.");
 
         const authenticate = async () => {
-            console.log("DIAGNOSTICO: Iniciando autenticação.");
             try {
                 if (initialAuthToken) {
-                    console.log("DIAGNOSTICO: Tentando signInWithCustomToken...");
                     await signInWithCustomToken(firebaseAuth, initialAuthToken);
-                    console.log("DIAGNOSTICO: signInWithCustomToken SUCESSO.");
                 } else {
-                    console.log("DIAGNOSTICO: Token não encontrado. Tentando signInAnonymously...");
                     await signInAnonymously(firebaseAuth);
-                    console.log("DIAGNOSTICO: signInAnonymously SUCESSO.");
                 }
                 
                 const user = firebaseAuth.currentUser;
-                const uid = user?.uid || crypto.randomUUID(); 
-                setUserId(uid);
+                let uid;
                 
-                console.log("DIAGNOSTICO: Autenticação concluída. UID:", uid);
-                // Mude o status APÓS a autenticação bem-sucedida (CORREÇÃO DE CARREGAMENTO)
+                // CORREÇÃO DE SINTAXE: Evitando Optional Chaining (?. ) para compatibilidade.
+                if (user && user.uid) {
+                    uid = user.uid;
+                } else {
+                    uid = crypto.randomUUID(); 
+                }
+                
+                setUserId(uid);
+                // Mude o status APÓS a autenticação bem-sucedida
                 setStatus(GAME_STATUS.JOINING); 
-                console.log("DIAGNOSTICO: Status alterado para JOINING.");
 
             } catch (authError) {
                 console.error("ERRO FATAL DE AUTENTICAÇÃO:", authError.code, authError.message);
-                setStatus(GAME_STATUS.ERROR);
+                setStatus(GAME_STATUS.ERROR); 
             }
         };
 
@@ -92,13 +88,12 @@ useEffect(() => {
     }
 }, []);
 
-// === LÓGICA DE ENTRADA DO JOGO E DATASCRIPTIONS (MANTIDA) ===
+// === LÓGICA DE DATASCRIPTIONS (Real-time updates) ===
 
-// 1. Inscrição em jogadores (Real-time update)
+// 1. Inscrição em jogadores 
 useEffect(() => {
     if (!db || status === GAME_STATUS.LOADING || status === GAME_STATUS.ERROR || status === GAME_STATUS.JOINING) return;
 
-    console.log("DIAGNOSTICO: Iniciando onSnapshot para Players.");
     const playersQuery = query(collection(db, COL_PLAYERS));
     const unsubscribe = onSnapshot(playersQuery, (snapshot) => {
         const playerList = snapshot.docs.map(doc => ({ 
@@ -113,11 +108,10 @@ useEffect(() => {
     return () => unsubscribe();
 }, [db, status]);
 
-// 2. Inscrição em mensagens (Real-time update)
+// 2. Inscrição em mensagens 
 useEffect(() => {
     if (!db || status === GAME_STATUS.LOADING || status === GAME_STATUS.ERROR || status === GAME_STATUS.JOINING) return;
 
-    console.log("DIAGNOSTICO: Iniciando onSnapshot para Messages.");
     const messagesQuery = query(collection(db, COL_MESSAGES));
     const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
         const messageList = snapshot.docs
@@ -146,7 +140,6 @@ const handleJoinGame = useCallback(async () => {
             isAnonymous: true 
         });
         setStatus(GAME_STATUS.WAITING_FOR_QUESTION);
-        console.log("DIAGNOSTICO: Jogador entrou:", username);
     } catch (e) {
         console.error("Erro ao entrar no jogo:", e);
     }
@@ -160,7 +153,6 @@ const handleVote = useCallback(async () => {
         const playerRef = doc(db, COL_PLAYERS, userId);
         await updateDoc(playerRef, { vote: voteTargetId, votedAt: new Date() });
         setStatus(GAME_STATUS.VOTING); 
-        console.log(`DIAGNOSTICO: Usuário ${userId} votou em ${voteTargetId}`);
     } catch (e) {
         console.error("Erro ao votar:", e);
     }
@@ -187,6 +179,7 @@ const handleSendMessage = async (e) => {
     if (!db || !userId || text === '') return;
 
     try {
+        // Buscamos o nome do usuário que está logado
         const userPlayer = players.find(p => p.id === userId);
 
         await addDoc(collection(db, COL_MESSAGES), {
@@ -196,13 +189,12 @@ const handleSendMessage = async (e) => {
             timestamp: new Date()
         });
         input.value = ''; 
-        console.log("DIAGNOSTICO: Mensagem enviada.");
     } catch (e) {
         console.error("Erro ao enviar mensagem:", e);
     }
 };
 
-// --- RENDERIZAÇÃO DA TELA DE CARREGAMENTO/ERRO ---
+// --- RENDERIZAÇÃO DA INTERFACE ---
 
 // 1. Tela de Carregamento 
 if (status === GAME_STATUS.LOADING) {
@@ -210,24 +202,24 @@ if (status === GAME_STATUS.LOADING) {
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-4">
             <Loader2 className="w-10 h-10 animate-spin text-purple-400" />
             <p className="mt-4 text-lg">Iniciando a Conexão com o Servidor...</p>
-            <p className="mt-2 text-sm text-gray-400">Isso deve levar apenas alguns segundos.</p>
+            <p className="mt-2 text-sm text-gray-400">Aguardando a autenticação de segurança.</p>
         </div>
     );
 }
 
-// 2. Tela de Erro
+// 2. Tela de Erro (VERMELHA)
 if (status === GAME_STATUS.ERROR) {
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-red-800 text-white p-6 rounded-xl shadow-2xl">
             <Info className="w-10 h-10 mb-4" />
             <h1 className="text-2xl font-bold">ERRO FATAL DE CONEXÃO</h1>
-            <p className="mt-2 text-center">Não foi possível conectar ao Firebase. Verifique o console para mais detalhes.</p>
-            <p className="mt-4 text-xs">ID do Aplicativo: {appId}</p>
+            <p className="mt-2 text-center">O login no Firebase falhou. Tente novamente ou verifique a conexão com a internet.</p>
+            <p className="mt-4 text-xs">Se o problema persistir, pode ser um erro de configuração de segurança.</p>
         </div>
     );
 }
 
-// --- RENDERIZAÇÃO DA TELA DE ENTRADA ---
+// 3. Tela de Entrada
 if (status === GAME_STATUS.JOINING) {
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-4">
@@ -257,16 +249,16 @@ if (status === GAME_STATUS.JOINING) {
     );
 }
 
-// --- RENDERIZAÇÃO DA INTERFACE DO JOGO (Visão Geral) ---
+// 4. Interface do Jogo
 const userPlayer = players.find(p => p.id === userId);
-const hasVoted = userPlayer?.vote !== null;
+const hasVoted = userPlayer && userPlayer.vote !== null;
 
 return (
     <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
         <header className="flex justify-between items-center pb-6 border-b border-gray-700 mb-6">
             <h1 className="text-4xl font-extrabold text-purple-400 flex items-center"><Zap className="mr-2 h-8 w-8" /> Foi Você?</h1>
             <div className="text-right">
-                <p className="font-semibold">Olá, {userPlayer?.username || 'Anônimo'}</p>
+                <p className="font-semibold">Olá, {userPlayer ? userPlayer.username : 'Anônimo'}</p>
                 <p className="text-sm text-gray-500">ID: {userId}</p>
             </div>
         </header>
@@ -324,7 +316,8 @@ return (
                                         </p>
                                         <p>{msg.text}</p>
                                         <span className="block text-right text-xs mt-1 opacity-50">
-                                            {msg.timestamp ? new Date(msg.timestamp.seconds * 1000).toLocaleTimeString() : ''}
+                                            {/* Usando new Date(msg.timestamp.seconds * 1000) de forma segura */}
+                                            {msg.timestamp && msg.timestamp.seconds ? new Date(msg.timestamp.seconds * 1000).toLocaleTimeString() : ''}
                                         </span>
                                     </div>
                                 </div>
