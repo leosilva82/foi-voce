@@ -3,7 +3,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, onSnapshot, collection, query, where, addDoc, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
 import { Loader2, Zap, Users, MessageSquare, Target, CheckCheck, X } from 'lucide-react';
-// --- CONFIGURAÇÃO E VARIÁVEIS DO AMBIENTE (Resolve o erro 'no-undef') ---
+// --- CONFIGURAÇÃO E VARIÁVEIS DO AMBIENTE ---
 // O build falha porque não conhece estas variáveis. Usamos um fallback seguro.
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
@@ -11,25 +11,9 @@ const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial
 // Caminhos de coleções (Obrigatório para o Firestore)
 const getPublicCollectionRef = (db, collectionName) =>
 collection(db, /artifacts/${appId}/public/data/${collectionName});
-// --- TIPOS ---
-// Define a estrutura de dados (para clareza)
-/**
- * @typedef {Object} GameState
- * @property {'LOBBY'|'WAITING_PROMPTS'|'WAITING_GUESSES'|'REVEALING'|'FINISHED'} status
- * @property {string} hostId
- * @property {string} currentPrompt
- * @property {number} round
- * @property {number} maxRounds
- * @property {string[]} prompts
- * @property {Object.<string, string>} answers
- * @property {Object.<string, string>} guesses
- * @property {Object.<string, number>} scores
- * @property {string | null} correctAnswerId
- * @property {boolean} isHost
-   */
 // --- COMPONENTE PRINCIPAL ---
 export const AnonymousPartyGame = () => {
-// --- HOOKS DE ESTADO (Chamados incondicionalmente no topo, resolve o erro de hooks) ---
+// --- HOOKS DE ESTADO (Chamados incondicionalmente no topo) ---
 const [db, setDb] = useState(null);
 const [auth, setAuth] = useState(null);
 const [userId, setUserId] = useState(null);
@@ -40,12 +24,26 @@ const [isJoining, setIsJoining] = useState(false);
 const [error, setError] = useState('');
 const [lobbyIdInput, setLobbyIdInput] = useState('');
 const [players, setPlayers] = useState([]);
-const [gameState, setGameState] = useState(/** @type {GameState | null} */ (null));
+// GameState agora inicializado sem anotações complexas de tipo JSDoc
+const [gameState, setGameState] = useState(null);
 const [myPrompt, setMyPrompt] = useState('');
 const [myGuess, setMyGuess] = useState('');
 const [selectedPromptIndex, setSelectedPromptIndex] = useState(-1);
 const [isSubmitting, setIsSubmitting] = useState(false);
 const [myAnswer, setMyAnswer] = useState('');
+// Define o estado inicial do jogo (estrutura)
+const initialGameState = useMemo(() => ({
+status: 'LOBBY', // Estados: 'LOBBY' | 'WAITING_PROMPTS' | 'WAITING_GUESSES' | 'REVEALING' | 'FINISHED'
+hostId: '',
+currentPrompt: '',
+round: 0,
+maxRounds: 3,
+prompts: [],
+answers: {},
+guesses: {},
+scores: {},
+correctAnswerId: null,
+}), []);
 // --- FUNÇÕES DE SETUP (Inicialização do Firebase e Autenticação) ---
 useEffect(() => {
 try {
@@ -92,19 +90,6 @@ setAuth(authInstance);
 }
 
 }, []);
-// Define o estado inicial do jogo
-const initialGameState = useMemo(() => ({
-status: 'LOBBY',
-hostId: '',
-currentPrompt: '',
-round: 0,
-maxRounds: 3,
-prompts: [],
-answers: {},
-guesses: {},
-scores: {},
-correctAnswerId: null,
-}), []);
 // --- LISTENERS (Sincronização em Tempo Real) ---
 // 1. Listener do Jogo (gameState)
 useEffect(() => {
