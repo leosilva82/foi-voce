@@ -1,8 +1,6 @@
 {
-  "build_config": {
-    "build_command": "npm install && npm run build",
-    "output_dir": "build",
-    "root_dir": "/"
+  "build": {
+    "command": "npm install && npm run build",
+    "dir": "build"
   }
 }
-
