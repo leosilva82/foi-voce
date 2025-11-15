@@ -63,10 +63,11 @@ useEffect(() => {
                 const user = firebaseAuth.currentUser;
                 let uid;
                 
-                // CORREÇÃO DE SINTAXE: Usando if/else tradicional para garantir compatibilidade
+                // Gerando UID, se não autenticado
                 if (user && user.uid) {
                     uid = user.uid;
                 } else {
+                    // randomUUID é suportado no ambiente Node 22.16.0
                     uid = crypto.randomUUID(); 
                 }
                 
@@ -107,7 +108,7 @@ useEffect(() => {
     return () => unsubscribe();
 }, [db, status]);
 
-// 2. Inscrição em mensagens (CORREÇÃO DE SINTAXE DE ORDENAÇÃO)
+// 2. Inscrição em mensagens (Ordenação corrigida para compatibilidade)
 useEffect(() => {
     if (!db || status === GAME_STATUS.LOADING || status === GAME_STATUS.ERROR || status === GAME_STATUS.JOINING) return;
 
@@ -116,7 +117,7 @@ useEffect(() => {
         const messageList = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() }))
             .sort((a, b) => {
-                // CÓDIGO CORRIGIDO: Removendo o '?.toMillis()' para compatibilidade
+                // Ordenando por timestamp
                 const timeA = a.timestamp && typeof a.timestamp.toMillis === 'function' ? a.timestamp.toMillis() : 0;
                 const timeB = b.timestamp && typeof b.timestamp.toMillis === 'function' ? b.timestamp.toMillis() : 0;
                 return timeA - timeB;
@@ -143,7 +144,7 @@ const handleJoinGame = useCallback(async () => {
             vote: null,
             isAnonymous: true 
         });
-        setStatus(GAME_STATUS.WAITING_FOR_QUESTION);
+        setStatus(GAME_STATUS.VOTING); // Passa direto para votação/seleção de voto
     } catch (e) {
         console.error("Erro ao entrar no jogo:", e);
     }
