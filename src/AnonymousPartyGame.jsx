@@ -1,3 +1,4 @@
+/* global __app_id __firebase_config __initial_auth_token */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
@@ -8,7 +9,7 @@ import {
 import { Loader2, Zap, Users, Send, Smile, Info } from 'lucide-react';
 
 // === 1. CONFIGURAÇÃO DE AMBIENTE DO CANVAS (CRÍTICO) ===
-// As variáveis globais __app_id e __firebase_config são fornecidas pelo ambiente.
+// O comentário '/* global... */' acima resolve o erro 'no-undef' do ESLint.
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -385,3 +386,4 @@ const AnonymousPartyGame = () => {
 };
 
 export default AnonymousPartyGame;
+
