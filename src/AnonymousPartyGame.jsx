@@ -79,7 +79,6 @@ useEffect(() => {
     if (!db || !userId || !isAuthReady) return;
 
     // Caminho PRIVADO para teste: /artifacts/{appId}/users/{userId}/testData/mainDocument
-    // Este caminho requer REGRAS DE SEGURANÇA que permitam leitura/escrita para o próprio usuário autenticado.
     const documentPath = `artifacts/${appId}/users/${userId}/testData/mainDocument`;
     const docRef = doc(db, documentPath);
 
