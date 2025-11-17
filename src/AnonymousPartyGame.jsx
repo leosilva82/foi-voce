@@ -1,126 +1,205 @@
-/* global __firebase_config __initial_auth_token */
-import React, { useState, useEffect } from 'react';
+/* global __app_id __firebase_config __initial_auth_token */
+import React, { useState, useEffect, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
-import { Loader2, Zap } from 'lucide-react';
-
-// === CONFIGURAÇÃO DE AMBIENTE DO CANVAS ===
-// As configurações e tokens são injetados automaticamente
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+import {
+getAuth,
+signInAnonymously,
+signInWithCustomToken,
+onAuthStateChanged
+} from 'firebase/auth';
+import {
+getFirestore,
+doc,
+setDoc,
+onSnapshot
+} from 'firebase/firestore';
+import { Loader2, Zap, Save, AlertTriangle } from 'lucide-react';
+// Variáveis de Ambiente (fornecidas pelo sistema)
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+// Verifica e faz parsing da configuração do Firebase
+const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config ? JSON.parse(__firebase_config) : {};
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+// --- COMPONENTE PRINCIPAL (usado no App.jsx) ---
+export const AnonymousPartyGame = () => {
+const [db, setDb] = useState(null);
+const [userId, setUserId] = useState(null);
+const [isAuthReady, setIsAuthReady] = useState(false);
+const [initError, setInitError] = useState(null);
+const [inputText, setInputText] = useState('');
+const [lastSavedData, setLastSavedData] = useState('Aguardando...');
+const [statusMessage, setStatusMessage] = useState('Conectando...');
+const [isSaving, setIsSaving] = useState(false);
 
-const STATUS = {
-    PENDING: 'Conectando...',
-    SUCCESS: 'Sucesso!',
-    ERROR: 'Erro Fatal'
-};
-
-const ConnectionTesterMinimal = () => {
-    const [connectionStatus, setConnectionStatus] = useState(STATUS.PENDING);
-    const [userId, setUserId] = useState('Aguardando...');
-    const [authDetails, setAuthDetails] = useState('Iniciando...');
-
-    // A lógica de conexão roda uma vez
-    useEffect(() => {
-        if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
-            setConnectionStatus(STATUS.ERROR);
-            setAuthDetails('ERRO: Configuração do Firebase ausente.');
-            return;
-        }
-
-        try {
-            const app = initializeApp(firebaseConfig);
-            const auth = getAuth(app);
-            
-            // Função que se auto-executa para lidar com o async/await dentro do useEffect
-            const attemptAuth = async () => {
-                try {
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                        setAuthDetails('Autenticação com TOKEN CUSTOMIZADO.');
-                    } else {
-                        await signInAnonymously(auth);
-                        setAuthDetails('Autenticação ANÔNIMA.');
-                    }
-                    
-                    const user = auth.currentUser;
-                    if (user && user.uid) {
-                        setUserId(user.uid);
-                        setConnectionStatus(STATUS.SUCCESS);
-                    } else {
-                        setUserId('ID não encontrado.');
-                        setConnectionStatus(STATUS.ERROR);
-                    }
-                } catch (error) {
-                    console.error("ERRO COMPLETO DO FIREBASE:", error);
-                    setConnectionStatus(STATUS.ERROR);
-                    setUserId('Erro de autenticação.');
-                    setAuthDetails(`Falha na Autenticação: ${error.code}`);
-                }
-            };
-
-            attemptAuth();
-        } catch (initError) {
-            console.error("ERRO DE INICIALIZAÇÃO DO FIREBASE:", initError);
-            setConnectionStatus(STATUS.ERROR);
-            setAuthDetails(`Falha na Inicialização: ${initError.message}`);
-        }
-    }, []); // Array de dependências vazio para rodar apenas uma vez
-
-    const getColor = () => {
-        switch(connectionStatus) {
-            case STATUS.SUCCESS: return 'bg-green-600';
-            case STATUS.ERROR: return 'bg-red-700';
-            default: return 'bg-gray-800';
-        }
+// 1. SETUP DO FIREBASE E AUTENTICAÇÃO
+useEffect(() => {
+    // 1.1 Verificação de Configuração Crítica
+    if (!firebaseConfig || !firebaseConfig.apiKey) {
+        setInitError("ERRO: A chave 'apiKey' do Firebase não foi fornecida. A conexão não pode ser estabelecida. (Verifique __firebase_config)");
+        setIsAuthReady(true);
+        return;
     }
 
+    try {
+        const app = initializeApp(firebaseConfig);
+        const firestore = getFirestore(app);
+        const firebaseAuth = getAuth(app);
+        
+        setDb(firestore);
+
+        const authListener = onAuthStateChanged(firebaseAuth, async (user) => {
+            if (user) {
+                setUserId(user.uid);
+                setStatusMessage(`Autenticado com Sucesso. ID: ${user.uid.substring(0, 8)}...`);
+            } else {
+                // Tenta login anônimo como fallback
+                await signInAnonymously(firebaseAuth).catch(e => {
+                     console.error("Erro no Login Anônimo:", e);
+                     setInitError("Falha na autenticação. Verifique as regras de segurança.");
+                });
+            }
+            setIsAuthReady(true);
+        });
+
+        if (initialAuthToken) {
+            signInWithCustomToken(firebaseAuth, initialAuthToken).catch(e => {
+                console.error("Erro no Login com Token:", e);
+            });
+        }
+
+        return () => authListener();
+    } catch (error) {
+        console.error("Erro Fatal na inicialização do Firebase:", error);
+        setInitError(`ERRO CRÍTICO: ${error.message}. Verifique sua configuração.`);
+        setIsAuthReady(true);
+    }
+}, []);
+
+// 2. Listener de Dados (Leitura)
+useEffect(() => {
+    if (!db || !userId || !isAuthReady) return;
+
+    // Caminho PRIVADO para teste: /artifacts/{appId}/users/{userId}/testData/mainDocument
+    // Este caminho requer REGRAS DE SEGURANÇA que permitam leitura/escrita para o próprio usuário autenticado.
+    const documentPath = `artifacts/${appId}/users/${userId}/testData/mainDocument`;
+    const docRef = doc(db, documentPath);
+
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data().content || 'Nenhum conteúdo salvo.';
+            setLastSavedData(data);
+            if (!statusMessage.includes('ERRO')) {
+                setStatusMessage(`Leitura de dados em tempo real OK. Usuário: ${userId.substring(0, 8)}...`);
+            }
+        } else {
+            setLastSavedData('Documento não existe. Salve algo para criá-lo.');
+        }
+    }, (error) => {
+        console.error("Erro ao ler o Firestore:", error);
+        setStatusMessage(`ERRO DE PERMISSÃO: ${error.code}. Verifique as Regras de Segurança.`);
+        setLastSavedData('FALHA NA LEITURA.');
+    });
+
+    return () => unsubscribe();
+}, [db, userId, isAuthReady, statusMessage]);
+
+// 3. Função de Salvar Dado (Escrita)
+const saveData = useCallback(async () => {
+    if (!db || !userId || isSaving) return;
+    
+    setIsSaving(true);
+    setStatusMessage("Salvando dado...");
+
+    try {
+        const documentPath = `artifacts/${appId}/users/${userId}/testData/mainDocument`;
+        const docRef = doc(db, documentPath);
+
+        await setDoc(docRef, {
+            content: inputText,
+            timestamp: new Date().toISOString(),
+            savedBy: userId,
+        }, { merge: true });
+
+        setStatusMessage("Dado salvo com sucesso! Leitura atualizada em tempo real.");
+        setInputText('');
+    } catch (error) {
+        console.error("Erro ao salvar no Firestore:", error);
+        setStatusMessage(`ERRO DE ESCRITA: ${error.code}. Verifique as Regras de Segurança.`);
+    } finally {
+        setIsSaving(false);
+    }
+}, [db, userId, inputText, isSaving]);
+
+
+// UI de Erro de Inicialização
+if (initError) {
     return (
-        <div className={`flex flex-col items-center justify-center min-h-screen ${getColor()} text-white p-6 transition duration-500`}>
-            <div className="bg-gray-900 p-8 rounded-2xl shadow-2xl w-full max-w-lg text-center">
-                <h1 className="text-3xl font-extrabold mb-6 flex items-center justify-center text-purple-400">
-                    <Zap className="w-8 h-8 mr-2" /> Teste de Conexão
-                </h1>
-                
-                {connectionStatus === STATUS.PENDING && (
-                    <div className="flex flex-col items-center">
-                        <Loader2 className="w-10 h-10 animate-spin text-purple-400 mb-4" />
-                        <p className="text-xl">Conectando ao Firebase...</p>
-                    </div>
-                )}
-
-                {connectionStatus !== STATUS.PENDING && (
-                    <div className="space-y-4">
-                        <div className="p-4 bg-gray-800 rounded-lg">
-                            <p className="text-gray-400 font-semibold">STATUS GERAL:</p>
-                            <p className={`text-2xl font-bold ${connectionStatus === STATUS.SUCCESS ? 'text-green-400' : 'text-red-400'}`}>
-                                {connectionStatus}
-                            </p>
-                        </div>
-                        
-                        <div className="p-4 bg-gray-800 rounded-lg break-words text-left">
-                            <p className="text-gray-400 font-semibold">DETALHES DA AUTENTICAÇÃO:</p>
-                            <p className="text-lg font-mono text-yellow-300">{authDetails}</p>
-                        </div>
-
-                        <div className="p-4 bg-gray-800 rounded-lg break-words text-left">
-                            <p className="text-gray-400 font-semibold">SEU ID (UID):</p>
-                            <p className="text-lg font-mono">{userId}</p>
-                        </div>
-                        
-                        {connectionStatus === STATUS.SUCCESS && (
-                            <p className="text-center text-lg text-green-300 pt-4">✅ O Firebase está funcionando corretamente!</p>
-                        )}
-                        
-                        {connectionStatus === STATUS.ERROR && (
-                            <p className="text-center text-lg text-red-300 pt-4">❌ Houve um erro na conexão. Verifique os logs do console.</p>
-                        )}
-                    </div>
-                )}
-            </div>
+        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 p-4 text-center">
+            <AlertTriangle className="w-12 h-12 mb-4 text-red-500" />
+            <h1 className="text-2xl font-bold text-red-400 mb-3">ERRO DE CONFIGURAÇÃO CRÍTICA</h1>
+            <p className="text-gray-300 max-w-lg mb-6">{initError}</p>
+            <p className="text-sm text-gray-500">Este erro geralmente indica que a variável de ambiente do Firebase não foi injetada corretamente.</p>
         </div>
     );
+}
+
+if (!isAuthReady) {
+    return (
+        <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">
+            <Loader2 className="w-8 h-8 animate-spin mr-2 text-purple-400" />
+            <p>Iniciando conexão segura com Firebase...</p>
+        </div>
+    );
+}
+
+return (
+    <div className="min-h-screen bg-gray-900 p-4 flex flex-col items-center justify-start">
+        <div className="bg-gray-800 p-6 rounded-2xl shadow-xl border border-purple-600 w-full max-w-md mx-auto mt-10">
+            
+            <h1 className="text-3xl font-extrabold text-purple-400 mb-4 flex items-center justify-center">
+                <Zap className="w-6 h-6 mr-2" /> Teste de Conexão Firestore
+            </h1>
+            
+            {/* Status */}
+            <div className="p-3 mb-6 rounded-lg text-center font-medium" style={{ 
+                backgroundColor: statusMessage.includes('ERRO') ? '#4a1717' : '#174a17', 
+                color: statusMessage.includes('ERRO') ? '#f87171' : '#a7f3d0' 
+            }}>
+                {statusMessage}
+            </div>
+
+            {/* Último Dado Salvo */}
+            <div className="mb-8 p-4 bg-gray-700 rounded-lg border border-gray-600">
+                <h3 className="text-lg font-semibold mb-2 text-gray-200">Último Dado Lido (Em Tempo Real):</h3>
+                <p className="text-white break-words italic">"{lastSavedData}"</p>
+            </div>
+
+            {/* Formulário de Salvamento */}
+            <form onSubmit={(e) => { e.preventDefault(); saveData(); }} className="space-y-4">
+                <h3 className="text-xl font-semibold mb-3 text-purple-300">Salvar Novo Dado:</h3>
+                <input
+                    type="text"
+                    placeholder="Digite o dado de teste..."
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    className="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-purple-500 focus:border-purple-500"
+                    required
+                />
+                <button 
+                    type="submit"
+                    disabled={isSaving || !userId}
+                    className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 disabled:bg-gray-600 flex items-center justify-center"
+                >
+                    {isSaving ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Save className="w-5 h-5 mr-2" />}
+                    {isSaving ? 'Salvando...' : 'Salvar no Firestore'}
+                </button>
+            </form>
+
+        </div>
+        
+        <p className="text-gray-500 text-sm mt-4 break-words">Caminho do Firestore usado: /artifacts/{appId}/users/{userId}/testData/mainDocument</p>
+
+    </div>
+);
+
 };
-
-export default ConnectionTesterMinimal;
-
+export default AnonymousPartyGame;
