@@ -1,10 +1,11 @@
-/* global __app_id __firebase_config __initial_auth_token */
+/* global __firebase_config __initial_auth_token */
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
 import { Loader2, Zap } from 'lucide-react';
 
 // === CONFIGURAÇÃO DE AMBIENTE DO CANVAS ===
+// As configurações e tokens são injetados automaticamente
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
@@ -19,7 +20,7 @@ const ConnectionTesterMinimal = () => {
     const [userId, setUserId] = useState('Aguardando...');
     const [authDetails, setAuthDetails] = useState('Iniciando...');
 
-    // O useEffect é a parte mais segura para rodar a lógica de inicialização
+    // A lógica de conexão roda uma vez
     useEffect(() => {
         if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
             setConnectionStatus(STATUS.ERROR);
@@ -27,41 +28,44 @@ const ConnectionTesterMinimal = () => {
             return;
         }
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        
-        // Use uma função que se auto-executa para lidar com o async/await dentro do useEffect
-        const attemptAuth = async () => {
-            try {
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                    setAuthDetails('Autenticação com TOKEN CUSTOMIZADO.');
-                } else {
-                    await signInAnonymously(auth);
-                    setAuthDetails('Autenticação ANÔNIMA.');
-                }
-                
-                const user = auth.currentUser;
-                if (user && user.uid) {
-                    setUserId(user.uid);
-                    setConnectionStatus(STATUS.SUCCESS);
-                } else {
-                    setUserId('ID não encontrado.');
+        try {
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+            
+            // Função que se auto-executa para lidar com o async/await dentro do useEffect
+            const attemptAuth = async () => {
+                try {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        setAuthDetails('Autenticação com TOKEN CUSTOMIZADO.');
+                    } else {
+                        await signInAnonymously(auth);
+                        setAuthDetails('Autenticação ANÔNIMA.');
+                    }
+                    
+                    const user = auth.currentUser;
+                    if (user && user.uid) {
+                        setUserId(user.uid);
+                        setConnectionStatus(STATUS.SUCCESS);
+                    } else {
+                        setUserId('ID não encontrado.');
+                        setConnectionStatus(STATUS.ERROR);
+                    }
+                } catch (error) {
+                    console.error("ERRO COMPLETO DO FIREBASE:", error);
                     setConnectionStatus(STATUS.ERROR);
+                    setUserId('Erro de autenticação.');
+                    setAuthDetails(`Falha na Autenticação: ${error.code}`);
                 }
-            } catch (error) {
-                console.error("ERRO COMPLETO DO FIREBASE:", error);
-                setConnectionStatus(STATUS.ERROR);
-                setUserId('Erro de autenticação.');
-                setAuthDetails(`Falha na Autenticação: ${error.code}`);
-            }
-        };
+            };
 
-        attemptAuth();
-
-        // O linter não deve reclamar pois 'auth' é usado no try/catch
-        // e 'attemptAuth' não tem dependências externas.
-    }, []);
+            attemptAuth();
+        } catch (initError) {
+            console.error("ERRO DE INICIALIZAÇÃO DO FIREBASE:", initError);
+            setConnectionStatus(STATUS.ERROR);
+            setAuthDetails(`Falha na Inicialização: ${initError.message}`);
+        }
+    }, []); // Array de dependências vazio para rodar apenas uma vez
 
     const getColor = () => {
         switch(connectionStatus) {
